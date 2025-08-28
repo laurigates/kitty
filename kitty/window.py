@@ -117,6 +117,15 @@ from .utils import (
 
 MatchPatternType = Union[Pattern[str], tuple[Pattern[str], Optional[Pattern[str]]]]
 
+# Platform detection for accessibility
+_plat = sys.platform.lower()
+is_macos = 'darwin' in _plat
+
+# Conditional import of accessibility module
+if is_macos:
+    from .accessibility import AccessibilityManager
+else:
+    AccessibilityManager = None  # type: ignore
 
 if TYPE_CHECKING:
     from kittens.tui.handler import OpenUrlHandler
@@ -736,6 +745,12 @@ class Window:
         self.screen: Screen = Screen(self, 24, 80, opts.scrollback_lines, cell_width, cell_height, self.id)
         if copy_colors_from is not None:
             self.screen.copy_colors_from(copy_colors_from.screen)
+        
+        # Initialize accessibility manager on macOS
+        self.accessibility_manager: Optional[AccessibilityManager] = None
+        if is_macos and AccessibilityManager is not None:
+            self.accessibility_manager = AccessibilityManager(self)
+        
         self.remote_control_passwords = remote_control_passwords
         self.allow_remote_control = allow_remote_control
 
