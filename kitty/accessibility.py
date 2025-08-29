@@ -17,6 +17,21 @@ if TYPE_CHECKING:
 _plat = sys.platform.lower()
 is_macos = 'darwin' in _plat
 
+# Try to import C bridge functions
+try:
+    from kitty.fast_data_types import (
+        accessibility_get_terminal_text,
+        accessibility_get_cursor_text_position,
+        accessibility_insert_text_at_cursor,
+        accessibility_set_cursor_position,
+        accessibility_get_number_of_characters,
+        accessibility_get_visible_character_range,
+        accessibility_post_notification,
+    )
+    c_bridge_available = True
+except ImportError:
+    c_bridge_available = False
+
 
 class AccessibilityManager:
     """Manages accessibility features for macOS Voice Control support."""
@@ -36,6 +51,8 @@ class AccessibilityManager:
         Returns:
             The terminal buffer contents as a string
         """
+        if c_bridge_available and self.window:
+            return accessibility_get_terminal_text(self.window.id)
         return ""  # Stub - will implement later
     
     def get_cursor_text_position(self) -> int:
