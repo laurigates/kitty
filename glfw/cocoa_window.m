@@ -1603,6 +1603,82 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
     return NO;
 }
 
+// NSAccessibility Protocol Extensions
+#pragma mark - NSAccessibility Protocol Extensions
+
+// Main text value for Voice Control
+- (NSString *)accessibilityValue {
+    // TODO: Call C function to get terminal text
+    // For now, return empty string
+    return @"";
+}
+
+// Voice Control dictation support
+- (void)setAccessibilityValue:(NSString *)value {
+    // TODO: Call C function to insert text at cursor
+    // This is called when Voice Control dictates text
+    if (value && [value length] > 0) {
+        // For now, just log the value
+    }
+}
+
+// Cursor position as text range
+- (NSRange)accessibilitySelectedTextRange {
+    // TODO: Get cursor position from terminal
+    // Return cursor position as NSRange
+    return NSMakeRange(0, 0);
+}
+
+// Total character count in terminal
+- (NSInteger)accessibilityNumberOfCharacters {
+    // TODO: Get total character count from terminal buffer
+    return 0;
+}
+
+// Visible portion of terminal
+- (NSRange)accessibilityVisibleCharacterRange {
+    // TODO: Calculate visible portion of terminal
+    return NSMakeRange(0, 0);
+}
+
+// Get attributed string for a range
+- (NSAttributedString *)accessibilityAttributedStringForRange:(NSRange)range {
+    // TODO: Return attributed string for the specified range
+    NSString *value = [self accessibilityValue];
+    if (range.location + range.length <= [value length]) {
+        NSString *substring = [value substringWithRange:range];
+        return [[[NSAttributedString alloc] initWithString:substring] autorelease];
+    }
+    return [[[NSAttributedString alloc] initWithString:@""] autorelease];
+}
+
+// Calculate range for specific line
+- (NSRange)accessibilityRangeForLine:(NSInteger)line {
+    // TODO: Calculate range for specific line
+    return NSMakeRange(0, 0);
+}
+
+// Get string for specific range
+- (NSString *)accessibilityStringForRange:(NSRange)range {
+    NSString *value = [self accessibilityValue];
+    if (range.location + range.length <= [value length]) {
+        return [value substringWithRange:range];
+    }
+    return @"";
+}
+
+// Convert screen coordinates to text position
+- (NSRange)accessibilityRangeForPosition:(NSPoint)point {
+    // TODO: Convert screen coordinates to text position
+    return NSMakeRange(0, 0);
+}
+
+// Calculate frame for text range
+- (NSRect)accessibilityFrameForRange:(NSRange)range {
+    // TODO: Calculate frame for text range
+    return NSMakeRect(0, 0, 0, 0);
+}
+
 @end
 // }}}
 

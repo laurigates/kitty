@@ -1326,6 +1326,97 @@ cocoa_show_progress_bar_on_dock_icon(PyObject *self UNUSED, PyObject *args) {
 }
 // }}}
 
+// Accessibility Bridge Functions {{{
+// These functions are called from kitty/accessibility.c
+#include "glfw-wrapper.h"
+
+void cocoa_set_accessibility_value_impl(const char* text) {
+    // Get the current key window
+    NSWindow* window = [NSApp keyWindow];
+    if (window) {
+        NSView* view = [window contentView];
+        if (view && [view respondsToSelector:@selector(setAccessibilityValue:)]) {
+            NSString* nsText = [NSString stringWithUTF8String:text];
+            [view setAccessibilityValue:nsText];
+        }
+    }
+}
+
+const char* cocoa_get_accessibility_value_impl(void) {
+    NSWindow* window = [NSApp keyWindow];
+    if (window) {
+        NSView* view = [window contentView];
+        if (view && [view respondsToSelector:@selector(accessibilityValue)]) {
+            NSString* value = [view accessibilityValue];
+            if (value) {
+                // Note: This returns a pointer to the internal UTF8 representation
+                // which is only valid for the current autorelease pool
+                return [value UTF8String];
+            }
+        }
+    }
+    return "";
+}
+
+void cocoa_post_accessibility_notification(const char* notification_name) {
+    NSWindow* window = [NSApp keyWindow];
+    if (window) {
+        NSView* view = [window contentView];
+        if (view) {
+            NSAccessibilityNotificationName notificationConstant = nil;
+            
+            // Map string names to NSAccessibility notification constants
+            if (strcmp(notification_name, "value_changed") == 0) {
+                notificationConstant = NSAccessibilityValueChangedNotification;
+            } else if (strcmp(notification_name, "selected_text_changed") == 0) {
+                notificationConstant = NSAccessibilitySelectedTextChangedNotification;
+            } else if (strcmp(notification_name, "focused_ui_element_changed") == 0) {
+                notificationConstant = NSAccessibilityFocusedUIElementChangedNotification;
+            } else if (strcmp(notification_name, "layout_changed") == 0) {
+                notificationConstant = NSAccessibilityLayoutChangedNotification;
+            }
+            
+            if (notificationConstant) {
+                NSAccessibilityPostNotification(view, notificationConstant);
+            }
+        }
+    }
+}
+
+// Helper function to get current window's terminal text
+const char* cocoa_get_terminal_text_for_window(void* window_handle) {
+    if (window_handle) {
+        GLFWwindow* glfwWindow = (GLFWwindow*)window_handle;
+        NSWindow* nsWindow = glfwGetCocoaWindow(glfwWindow);
+        if (nsWindow) {
+            NSView* view = [nsWindow contentView];
+            if (view && [view respondsToSelector:@selector(accessibilityValue)]) {
+                NSString* value = [view accessibilityValue];
+                if (value) {
+                    return [value UTF8String];
+                }
+            }
+        }
+    }
+    return "";
+}
+
+// Helper function to insert text for a specific window
+void cocoa_insert_text_for_window(void* window_handle, const char* text) {
+    if (window_handle && text) {
+        GLFWwindow* glfwWindow = (GLFWwindow*)window_handle;
+        NSWindow* nsWindow = glfwGetCocoaWindow(glfwWindow);
+        if (nsWindow) {
+            NSView* view = [nsWindow contentView];
+            if (view && [view respondsToSelector:@selector(setAccessibilityValue:)]) {
+                NSString* nsText = [NSString stringWithUTF8String:text];
+                [view setAccessibilityValue:nsText];
+            }
+        }
+    }
+}
+// }}}
+
 static PyMethodDef module_methods[] = {
     {"cocoa_play_system_sound_by_id_async", play_system_sound_by_id_async, METH_O, ""},
     {"cocoa_get_lang", (PyCFunction)cocoa_get_lang, METH_NOARGS, ""},

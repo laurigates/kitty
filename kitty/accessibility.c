@@ -13,11 +13,12 @@
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
 
-// Forward declarations for Objective-C functions (will be implemented in cocoa_window.m)
-// TODO: Uncomment when implemented in cocoa_window.m
-// extern void cocoa_set_accessibility_value_impl(const char* text);
-// extern const char* cocoa_get_accessibility_value_impl(void);
-// extern void cocoa_post_accessibility_notification(const char* notification_name);
+// Forward declarations for Objective-C functions (implemented in cocoa_window.m)
+extern void cocoa_set_accessibility_value_impl(const char* text);
+extern const char* cocoa_get_accessibility_value_impl(void);
+extern void cocoa_post_accessibility_notification(const char* notification_name);
+extern const char* cocoa_get_terminal_text_for_window(void* window_handle);
+extern void cocoa_insert_text_for_window(void* window_handle, const char* text);
 #endif
 
 static PyObject*
@@ -85,8 +86,7 @@ post_accessibility_notification(PyObject *self UNUSED, PyObject *args) {
     if (!PyArg_ParseTuple(args, "s", &notification_type)) return NULL;
     
 #ifdef __APPLE__
-    // TODO: Will connect to Objective-C layer later
-    // cocoa_post_accessibility_notification(notification_type);
+    cocoa_post_accessibility_notification(notification_type);
 #endif
     
     Py_RETURN_NONE;
@@ -107,7 +107,10 @@ static PyObject*
 cocoa_get_accessibility_value(PyObject *self UNUSED, PyObject *window_id_obj) {
     (void)window_id_obj;  // Will use later
 #ifdef __APPLE__
-    // Stub - will get terminal text later
+    const char* value = cocoa_get_accessibility_value_impl();
+    if (value) {
+        return PyUnicode_FromString(value);
+    }
     return PyUnicode_FromString("");
 #else
     Py_RETURN_NONE;
@@ -121,8 +124,7 @@ cocoa_set_accessibility_value(PyObject *self UNUSED, PyObject *args) {
     if (!PyArg_ParseTuple(args, "Os", &window_id_obj, &text)) return NULL;
     
 #ifdef __APPLE__
-    // TODO: Stub - will insert text later
-    // cocoa_set_accessibility_value_impl(text);
+    cocoa_set_accessibility_value_impl(text);
 #endif
     
     Py_RETURN_NONE;
