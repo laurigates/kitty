@@ -1512,8 +1512,29 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
 
 - (BOOL)isAccessibilitySelectorAllowed:(SEL)selector
 {
-    if (selector == @selector(accessibilityRole) || selector == @selector(accessibilitySelectedText)) return YES;
-    return NO;
+    
+    // Allow all text-related accessibility methods for Voice Control
+    if (selector == @selector(accessibilityRole) || 
+        selector == @selector(accessibilitySelectedText) ||
+        selector == @selector(accessibilityValue) ||
+        selector == @selector(setAccessibilityValue:) ||
+        selector == @selector(accessibilityNumberOfCharacters) ||
+        selector == @selector(accessibilitySelectedTextRange) ||
+        selector == @selector(accessibilityVisibleCharacterRange) ||
+        selector == @selector(accessibilityInsertionPointLineNumber) ||
+        selector == @selector(accessibilityFrame) ||
+        selector == @selector(accessibilityParent) ||
+        selector == @selector(accessibilityWindow) ||
+        selector == @selector(isAccessibilityFocused) ||
+        selector == @selector(accessibilityFrameForRange:) ||
+        selector == @selector(accessibilityStringForRange:) ||
+        selector == @selector(accessibilityLineForIndex:) ||
+        selector == @selector(accessibilityRangeForLine:)) {
+        return YES;
+    }
+    
+    // Call super for other standard selectors
+    return [super isAccessibilitySelectorAllowed:selector];
 }
 
 #if (TARGET_OS_OSX && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101400)
@@ -1608,17 +1629,39 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
 
 // Main text value for Voice Control
 - (NSString *)accessibilityValue {
+    
     // TODO: Call C function to get terminal text
-    // For now, return empty string
-    return @"";
+    // Return a space to indicate we're an editable text field
+    // Voice Control needs non-empty content to know it can insert text
+    return @" ";
 }
 
 // Voice Control dictation support
 - (void)setAccessibilityValue:(NSString *)value {
-    // TODO: Call C function to insert text at cursor
+    
     // This is called when Voice Control dictates text
     if (value && [value length] > 0) {
-        // For now, just log the value
+        const char *text = [value UTF8String];
+        
+        // Copy text to GLFW's text buffer like insertText does
+        size_t utf8_len = strlen(text);
+        if (utf8_len > 0) {
+            // Use the same mechanism as insertText
+            memset(_glfw.ns.text, 0, sizeof(_glfw.ns.text));
+            strncpy(_glfw.ns.text, text, sizeof(_glfw.ns.text) - 1);
+            _glfw.ns.text[sizeof(_glfw.ns.text) - 1] = 0;
+            
+            
+            // Send the text through GLFW's keyboard event system
+            GLFWkeyevent glfw_keyevent = {.text=_glfw.ns.text, .ime_state=GLFW_IME_COMMIT_TEXT};
+            _glfwInputKeyboard(window, &glfw_keyevent);
+            
+            // Clear the buffer after sending
+            _glfw.ns.text[0] = 0;
+        }
+        
+        // Post notification that value changed
+        NSAccessibilityPostNotification(self, NSAccessibilityValueChangedNotification);
     }
 }
 
@@ -1631,8 +1674,32 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
 
 // Total character count in terminal
 - (NSInteger)accessibilityNumberOfCharacters {
-    // TODO: Get total character count from terminal buffer
+    // Return a non-zero value to indicate we have editable content
+    return 1000; // Placeholder value indicating we have content
+}
+
+// Implement required methods for text input
+- (BOOL)isAccessibilityFocused {
+    // Return YES if this window is key/focused
+    return [window->ns.object isKeyWindow];
+}
+
+- (NSString *)accessibilityStringForRange:(NSRange)range {
+    // Return empty string for now
+    return @"";
+}
+
+- (NSRect)accessibilityFrameForRange:(NSRange)range {
+    // Return the window frame for now
+    return [self frame];
+}
+
+- (NSInteger)accessibilityLineForIndex:(NSInteger)index {
     return 0;
+}
+
+- (NSRange)accessibilityRangeForLine:(NSInteger)line {
+    return NSMakeRange(0, 0);
 }
 
 // Visible portion of terminal
@@ -1652,31 +1719,10 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
     return [[[NSAttributedString alloc] initWithString:@""] autorelease];
 }
 
-// Calculate range for specific line
-- (NSRange)accessibilityRangeForLine:(NSInteger)line {
-    // TODO: Calculate range for specific line
-    return NSMakeRange(0, 0);
-}
-
-// Get string for specific range
-- (NSString *)accessibilityStringForRange:(NSRange)range {
-    NSString *value = [self accessibilityValue];
-    if (range.location + range.length <= [value length]) {
-        return [value substringWithRange:range];
-    }
-    return @"";
-}
-
 // Convert screen coordinates to text position
 - (NSRange)accessibilityRangeForPosition:(NSPoint)point {
     // TODO: Convert screen coordinates to text position
     return NSMakeRange(0, 0);
-}
-
-// Calculate frame for text range
-- (NSRect)accessibilityFrameForRange:(NSRange)range {
-    // TODO: Calculate frame for text range
-    return NSMakeRect(0, 0, 0, 0);
 }
 
 @end
