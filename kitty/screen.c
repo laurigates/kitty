@@ -36,6 +36,10 @@
 #include "vt-parser.h"
 #include "resize.h"
 
+// Accessibility notification functions
+static void notify_accessibility_value_changed(Screen *self);
+static void notify_accessibility_selection_changed(Screen *self);
+
 static const ScreenModes empty_modes = {0, .mDECAWM=true, .mDECTCEM=true, .mDECARM=true};
 
 #define CSI_REP_MAX_REPETITIONS 65535u
@@ -1220,6 +1224,11 @@ void
 screen_draw_text(Screen *self, const uint32_t *chars, size_t num_chars) {
     screen_on_input(self);
     draw_text(self, chars, num_chars);
+    
+    // Notify accessibility of content change
+    if (num_chars > 0) {
+        notify_accessibility_value_changed(self);
+    }
 }
 
 static void
@@ -2283,6 +2292,9 @@ screen_cursor_position(Screen *self, unsigned int line, unsigned int column) {
     self->cursor->position_changed_by_client_at = self->parsing_at;
     self->cursor->x = column; self->cursor->y = line;
     screen_ensure_bounds(self, false, in_margins);
+    
+    // Notify accessibility of cursor position change
+    notify_accessibility_selection_changed(self);
 }
 
 void
@@ -5899,6 +5911,57 @@ PyTypeObject Screen_Type = {
     .tp_new = new_screen_object,
     .tp_getset = getsetters,
 };
+
+// Accessibility notification functions
+static void 
+notify_accessibility_value_changed(Screen *self UNUSED) {
+    // Only notify if we have global state with a boss (indicating running environment)
+    if (!global_state.boss) return;
+    
+    // Call the Python accessibility notification function
+    PyObject *args = PyTuple_New(2);
+    if (!args) return;
+    
+    // Get window ID from screen (assuming we have a way to get it)
+    // For now, use a dummy window ID - this will need to be properly implemented
+    // based on how screens are associated with windows in Kitty
+    PyTuple_SET_ITEM(args, 0, PyLong_FromLong(0));  // Placeholder window ID
+    PyTuple_SET_ITEM(args, 1, PyUnicode_FromString("value_changed"));
+    
+    // Call accessibility_post_notification function
+    PyObject *fast_data_types = PyImport_ImportModule("kitty.fast_data_types");
+    if (fast_data_types) {
+        PyObject *result = PyObject_CallMethod(fast_data_types, "accessibility_post_notification", "O", args);
+        Py_XDECREF(result);
+        Py_DECREF(fast_data_types);
+    }
+    
+    Py_DECREF(args);
+}
+
+static void 
+notify_accessibility_selection_changed(Screen *self UNUSED) {
+    // Only notify if we have global state with a boss (indicating running environment)
+    if (!global_state.boss) return;
+    
+    // Call the Python accessibility notification function
+    PyObject *args = PyTuple_New(2);
+    if (!args) return;
+    
+    // Get window ID from screen (placeholder for now)
+    PyTuple_SET_ITEM(args, 0, PyLong_FromLong(0));  // Placeholder window ID
+    PyTuple_SET_ITEM(args, 1, PyUnicode_FromString("selection_changed"));
+    
+    // Call accessibility_post_notification function
+    PyObject *fast_data_types = PyImport_ImportModule("kitty.fast_data_types");
+    if (fast_data_types) {
+        PyObject *result = PyObject_CallMethod(fast_data_types, "accessibility_post_notification", "O", args);
+        Py_XDECREF(result);
+        Py_DECREF(fast_data_types);
+    }
+    
+    Py_DECREF(args);
+}
 
 static PyMethodDef module_methods[] = {
     {"is_emoji_presentation_base", (PyCFunction)screen_is_emoji_presentation_base, METH_O, ""},

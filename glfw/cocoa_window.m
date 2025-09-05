@@ -3515,6 +3515,30 @@ glfwGetCocoaKeyEquivalent(uint32_t glfw_key, int glfw_mods, int *cocoa_mods) {
 
 GLFWAPI bool glfwIsLayerShellSupported(void) { return true; }
 
+// Function to post accessibility notifications from external code
+void cocoa_post_accessibility_notification(const char* notification_name) {
+    NSWindow* window = [NSApp mainWindow];
+    if (!window) return;
+    
+    GLFWContentView* view = (GLFWContentView*)window.contentView;
+    if (![view isKindOfClass:[GLFWContentView class]]) return;
+    
+    NSString* nsNotificationName = nil;
+    if (strcmp(notification_name, "NSAccessibilityValueChangedNotification") == 0) {
+        nsNotificationName = NSAccessibilityValueChangedNotification;
+    } else if (strcmp(notification_name, "NSAccessibilitySelectedTextChangedNotification") == 0) {
+        nsNotificationName = NSAccessibilitySelectedTextChangedNotification;
+    } else if (strcmp(notification_name, "NSAccessibilityFocusedUIElementChangedNotification") == 0) {
+        nsNotificationName = NSAccessibilityFocusedUIElementChangedNotification;
+    } else if (strcmp(notification_name, "NSAccessibilityLayoutChangedNotification") == 0) {
+        nsNotificationName = NSAccessibilityLayoutChangedNotification;
+    }
+    
+    if (nsNotificationName) {
+        NSAccessibilityPostNotification(view, nsNotificationName);
+    }
+}
+
 //////////////////////////////////////////////////////////////////////////
 //////                       GLFW internal API                      //////
 //////////////////////////////////////////////////////////////////////////

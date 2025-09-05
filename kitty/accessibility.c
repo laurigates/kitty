@@ -348,11 +348,21 @@ get_visible_character_range(PyObject *self UNUSED, PyObject *args) {
 
 static PyObject*
 post_accessibility_notification(PyObject *self UNUSED, PyObject *args) {
+    PyObject *window_id_obj;
     const char *notification_type;
-    if (!PyArg_ParseTuple(args, "s", &notification_type)) return NULL;
+    if (!PyArg_ParseTuple(args, "Os", &window_id_obj, &notification_type)) return NULL;
     
 #ifdef __APPLE__
-    cocoa_post_accessibility_notification(notification_type);
+    // Map notification types to Cocoa constants
+    if (strcmp(notification_type, "value_changed") == 0) {
+        cocoa_post_accessibility_notification("NSAccessibilityValueChangedNotification");
+    } else if (strcmp(notification_type, "selection_changed") == 0) {
+        cocoa_post_accessibility_notification("NSAccessibilitySelectedTextChangedNotification");
+    } else if (strcmp(notification_type, "focus_changed") == 0) {
+        cocoa_post_accessibility_notification("NSAccessibilityFocusedUIElementChangedNotification");
+    } else if (strcmp(notification_type, "layout_changed") == 0) {
+        cocoa_post_accessibility_notification("NSAccessibilityLayoutChangedNotification");
+    }
 #endif
     
     Py_RETURN_NONE;

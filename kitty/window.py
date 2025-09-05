@@ -954,6 +954,10 @@ class Window:
             self.screen.reload_all_gpu_data()
         wakeup_io_loop()
         wakeup_main_loop()
+        
+        # Notify accessibility of screen changes
+        if self.accessibility_manager:
+            self.accessibility_manager.on_screen_update()
 
     def set_geometry(self, new_geometry: WindowGeometry) -> None:
         if self.destroyed:
@@ -1271,6 +1275,10 @@ class Window:
                 import traceback
                 traceback.print_exc()
         self.screen.focus_changed(focused)
+        
+        # Notify accessibility of focus change
+        if self.accessibility_manager:
+            self.accessibility_manager.notify_focus_changed()
         if focused:
             self.last_focused_at = monotonic()
             update_ime_position_for_window(self.id, False, 1)
