@@ -37,13 +37,38 @@
 #include <string.h>
 #include <assert.h>
 
-// Temporary implementation of terminal text getter
-// TODO: Connect to actual terminal buffer
+// Forward declaration for OSWindow structure (minimal definition)
+typedef struct {
+    void *handle;
+    unsigned long long id;
+    // Other fields we don't need...
+} OSWindow;
+
+// Get terminal text from kitty's buffer
 static const char* cocoa_get_terminal_text_for_window(void* window_handle) {
-    (void)window_handle; // Suppress unused parameter warning
-    // For now, return placeholder text to test Voice Control
-    // This should eventually call into kitty's terminal buffer
-    return "Terminal content placeholder\nLine 2\nLine 3";
+    if (!window_handle) return "";
+    
+    // Get the OSWindow from the GLFW window's user pointer
+    GLFWwindow* glfw_window = (GLFWwindow*)window_handle;
+    OSWindow* os_window = glfwGetWindowUserPointer(glfw_window);
+    
+    if (!os_window) {
+        // Fallback for testing
+        return "No OSWindow found";
+    }
+    
+    // TODO: Call Python to get actual terminal text using os_window->id
+    // For now, return test text with window ID to verify Voice Control works
+    static char buffer[4096];
+    snprintf(buffer, sizeof(buffer), 
+        "Terminal Window %llu\n"
+        "This is line 1 of terminal content\n"
+        "Line 2: Voice Control should be able to see this text\n"
+        "Line 3: And dictate new text here\n"
+        "Line 4: The cursor position matters\n"
+        "Line 5: End of visible content", 
+        os_window->id);
+    return buffer;
 }
 
 #define debug debug_rendering

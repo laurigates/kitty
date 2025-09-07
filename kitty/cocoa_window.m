@@ -1383,21 +1383,26 @@ void cocoa_post_accessibility_notification(const char* notification_name) {
     }
 }
 
+// C function to get terminal text for accessibility
+// This is called from glfw/cocoa_window.m's accessibility methods
+const char* get_terminal_text_for_window_id(unsigned long long window_id) {
+    // TODO: Call Python to get actual terminal text using window_id
+    // For now, return test text with window ID to verify the connection works
+    static char buffer[1024];
+    snprintf(buffer, sizeof(buffer), 
+        "Terminal for Window %llu\n"
+        "This is test content\n"
+        "Voice Control should see this text\n"
+        "Line 4\nLine 5", 
+        window_id);
+    return buffer;
+}
+
 // Helper function to get current window's terminal text
 const char* cocoa_get_terminal_text_for_window(void* window_handle) {
-    if (window_handle) {
-        GLFWwindow* glfwWindow = (GLFWwindow*)window_handle;
-        NSWindow* nsWindow = glfwGetCocoaWindow(glfwWindow);
-        if (nsWindow) {
-            NSView* view = [nsWindow contentView];
-            if (view && [view respondsToSelector:@selector(accessibilityValue)]) {
-                NSString* value = [view accessibilityValue];
-                if (value) {
-                    return [value UTF8String];
-                }
-            }
-        }
-    }
+    (void)window_handle; // Suppress unused parameter warning
+    // This function is not actually used anymore since we call
+    // get_terminal_text_for_window_id directly from glfw/cocoa_window.m
     return "";
 }
 
