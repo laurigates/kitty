@@ -37,6 +37,15 @@
 #include <string.h>
 #include <assert.h>
 
+// Temporary implementation of terminal text getter
+// TODO: Connect to actual terminal buffer
+static const char* cocoa_get_terminal_text_for_window(void* window_handle) {
+    (void)window_handle; // Suppress unused parameter warning
+    // For now, return placeholder text to test Voice Control
+    // This should eventually call into kitty's terminal buffer
+    return "Terminal content placeholder\nLine 2\nLine 3";
+}
+
 #define debug debug_rendering
 
 static const char*
@@ -1630,9 +1639,12 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
 // Main text value for Voice Control
 - (NSString *)accessibilityValue {
     
-    // TODO: Call C function to get terminal text
-    // Return a space to indicate we're an editable text field
-    // Voice Control needs non-empty content to know it can insert text
+    // Get terminal text from C bridge function
+    const char* text = cocoa_get_terminal_text_for_window(window);
+    if (text && strlen(text) > 0) {
+        return [NSString stringWithUTF8String:text];
+    }
+    // Return a space if no text to indicate we're an editable field
     return @" ";
 }
 
@@ -1667,15 +1679,26 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
 
 // Cursor position as text range
 - (NSRange)accessibilitySelectedTextRange {
-    // TODO: Get cursor position from terminal
-    // Return cursor position as NSRange
+    // TODO: Get actual cursor position from terminal
+    // For now, return cursor at end of text (better than 0,0)
+    const char* text = cocoa_get_terminal_text_for_window(window);
+    if (text) {
+        NSInteger length = strlen(text);
+        // Put cursor at end of text for now
+        return NSMakeRange(length, 0);
+    }
     return NSMakeRange(0, 0);
 }
 
 // Total character count in terminal
 - (NSInteger)accessibilityNumberOfCharacters {
-    // Return a non-zero value to indicate we have editable content
-    return 1000; // Placeholder value indicating we have content
+    // Get terminal text to count characters
+    const char* text = cocoa_get_terminal_text_for_window(window);
+    if (text) {
+        return strlen(text);
+    }
+    // Return 1 to indicate we have at least some content
+    return 1;
 }
 
 // Implement required methods for text input
@@ -1704,8 +1727,14 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
 
 // Visible portion of terminal
 - (NSRange)accessibilityVisibleCharacterRange {
-    // TODO: Calculate visible portion of terminal
-    return NSMakeRange(0, 0);
+    // For now, return the full range as visible
+    // In the future, this should calculate the actual viewport
+    const char* text = cocoa_get_terminal_text_for_window(window);
+    if (text) {
+        NSInteger length = strlen(text);
+        return NSMakeRange(0, length);
+    }
+    return NSMakeRange(0, 1);
 }
 
 // Get attributed string for a range
