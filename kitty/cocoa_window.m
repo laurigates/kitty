@@ -1438,10 +1438,105 @@ static PyMethodDef module_methods[] = {
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
+// Accessibility bridge functions for GLFW
+// These functions are called from GLFW (Objective-C) to access Python terminal data
+
+// Thread-local storage for terminal text buffer
+static __thread char terminal_text_buffer[65536];
+
+static const char*
+accessibility_get_terminal_text(unsigned long long window_id) {
+    // Call Python to get terminal text
+    PyObject *args = Py_BuildValue("(K)", window_id);
+    if (!args) {
+        PyErr_Print();
+        return "";
+    }
+    
+    PyObject *result = PyObject_CallMethod(global_state.boss, "get_accessibility_text", "K", window_id);
+    Py_DECREF(args);
+    
+    if (!result) {
+        PyErr_Print();
+        return "";
+    }
+    
+    const char *text = PyUnicode_AsUTF8(result);
+    if (text) {
+        size_t len = strlen(text);
+        if (len >= sizeof(terminal_text_buffer)) {
+            len = sizeof(terminal_text_buffer) - 1;
+        }
+        memcpy(terminal_text_buffer, text, len);
+        terminal_text_buffer[len] = '\0';
+    }
+    Py_DECREF(result);
+    
+    return terminal_text_buffer;
+}
+
+static void
+accessibility_get_cursor_position(unsigned long long window_id, long *position, long *length) {
+    *position = 0;
+    *length = 0;
+    
+    PyObject *result = PyObject_CallMethod(global_state.boss, "get_accessibility_cursor", "K", window_id);
+    if (!result) {
+        PyErr_Print();
+        return;
+    }
+    
+    if (PyTuple_Check(result) && PyTuple_Size(result) == 2) {
+        *position = PyLong_AsLong(PyTuple_GetItem(result, 0));
+        *length = PyLong_AsLong(PyTuple_GetItem(result, 1));
+    }
+    Py_DECREF(result);
+}
+
+static void
+accessibility_insert_text(unsigned long long window_id, const char *text) {
+    if (!text) return;
+    
+    PyObject *result = PyObject_CallMethod(global_state.boss, "insert_accessibility_text", "Ks", window_id, text);
+    if (!result) {
+        PyErr_Print();
+        return;
+    }
+    Py_DECREF(result);
+}
+
+static void
+accessibility_post_notification(unsigned long long window_id, const char *notification) {
+    (void)window_id;  // Currently unused but may be needed for window-specific notifications
+    if (!notification) return;
+    
+    // Call the existing cocoa_post_accessibility_notification function
+    cocoa_post_accessibility_notification(notification);
+}
+
+// Function to register accessibility callbacks with GLFW
+void
+register_accessibility_callbacks(void) {
+    // Register our bridge functions with GLFW
+    // glfwRegisterAccessibilityCallbacks is already declared in glfw-wrapper.h
+    if (glfwRegisterAccessibilityCallbacks) {
+        glfwRegisterAccessibilityCallbacks(
+            accessibility_get_terminal_text,
+            accessibility_get_cursor_position,
+            accessibility_insert_text,
+            accessibility_post_notification
+        );
+    }
+}
+
 bool
 init_cocoa(PyObject *module) {
     cocoa_clear_global_shortcuts();
     if (PyModule_AddFunctions(module, module_methods) != 0) return false;
     register_at_exit_cleanup_func(COCOA_CLEANUP_FUNC, cleanup);
+    
+    // Register accessibility callbacks with GLFW
+    register_accessibility_callbacks();
+    
     return true;
 }

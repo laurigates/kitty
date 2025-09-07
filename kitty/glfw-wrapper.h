@@ -2390,4 +2390,14 @@ typedef int (*glfwSetX11LaunchCommand_func)(GLFWwindow*, char**, int);
 GFW_EXTERN glfwSetX11LaunchCommand_func glfwSetX11LaunchCommand_impl;
 #define glfwSetX11LaunchCommand glfwSetX11LaunchCommand_impl
 
+// Accessibility callback registration
+typedef void (*glfwRegisterAccessibilityCallbacks_func)(
+    const char* (*)(unsigned long long),
+    void (*)(unsigned long long, long*, long*),
+    void (*)(unsigned long long, const char*),
+    void (*)(unsigned long long, const char*)
+);
+GFW_EXTERN glfwRegisterAccessibilityCallbacks_func glfwRegisterAccessibilityCallbacks_impl;
+#define glfwRegisterAccessibilityCallbacks glfwRegisterAccessibilityCallbacks_impl
+
 const char* load_glfw(const char* path);

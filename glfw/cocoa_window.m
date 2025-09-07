@@ -44,6 +44,31 @@ typedef struct {
     // Other fields we don't need...
 } OSWindow;
 
+// Function pointer types for accessibility callbacks
+typedef const char* (*GetTerminalTextFunc)(unsigned long long window_id);
+typedef void (*GetCursorPositionFunc)(unsigned long long window_id, long *position, long *length);
+typedef void (*InsertTextFunc)(unsigned long long window_id, const char *text);
+typedef void (*PostNotificationFunc)(unsigned long long window_id, const char *notification);
+
+// Global function pointers for accessibility callbacks
+static GetTerminalTextFunc g_get_terminal_text = NULL;
+static GetCursorPositionFunc g_get_cursor_position = NULL;
+static InsertTextFunc g_insert_text = NULL;
+static PostNotificationFunc g_post_notification = NULL;
+
+// Function to register callbacks from kitty
+GLFWAPI void
+glfwRegisterAccessibilityCallbacks(
+    GetTerminalTextFunc get_text,
+    GetCursorPositionFunc get_cursor,
+    InsertTextFunc insert_text,
+    PostNotificationFunc post_notification) {
+    g_get_terminal_text = get_text;
+    g_get_cursor_position = get_cursor;
+    g_insert_text = insert_text;
+    g_post_notification = post_notification;
+}
+
 // Get terminal text from kitty's buffer
 static const char* cocoa_get_terminal_text_for_window(void* window_handle) {
     if (!window_handle) return "";
@@ -53,22 +78,54 @@ static const char* cocoa_get_terminal_text_for_window(void* window_handle) {
     OSWindow* os_window = glfwGetWindowUserPointer(glfw_window);
     
     if (!os_window) {
-        // Fallback for testing
         return "No OSWindow found";
     }
     
-    // TODO: Call Python to get actual terminal text using os_window->id
-    // For now, return test text with window ID to verify Voice Control works
+    // Call the registered callback if available
+    if (g_get_terminal_text) {
+        return g_get_terminal_text(os_window->id);
+    }
+    
+    // Fallback for testing
     static char buffer[4096];
     snprintf(buffer, sizeof(buffer), 
         "Terminal Window %llu\n"
-        "This is line 1 of terminal content\n"
-        "Line 2: Voice Control should be able to see this text\n"
-        "Line 3: And dictate new text here\n"
-        "Line 4: The cursor position matters\n"
-        "Line 5: End of visible content", 
+        "Test content - callbacks not registered\n", 
         os_window->id);
     return buffer;
+}
+
+// Get cursor position from kitty
+static void cocoa_get_cursor_position_for_window(void* window_handle, long *position, long *length) {
+    *position = 0;
+    *length = 0;
+    
+    if (!window_handle) return;
+    
+    GLFWwindow* glfw_window = (GLFWwindow*)window_handle;
+    OSWindow* os_window = glfwGetWindowUserPointer(glfw_window);
+    
+    if (!os_window) return;
+    
+    // Call the registered callback if available
+    if (g_get_cursor_position) {
+        g_get_cursor_position(os_window->id, position, length);
+    }
+}
+
+// Insert text through kitty
+static void cocoa_insert_text_for_window(void* window_handle, const char *text) {
+    if (!window_handle || !text) return;
+    
+    GLFWwindow* glfw_window = (GLFWwindow*)window_handle;
+    OSWindow* os_window = glfwGetWindowUserPointer(glfw_window);
+    
+    if (!os_window) return;
+    
+    // Call the registered callback if available
+    if (g_insert_text) {
+        g_insert_text(os_window->id, text);
+    }
 }
 
 #define debug debug_rendering
@@ -1680,22 +1737,8 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
     if (value && [value length] > 0) {
         const char *text = [value UTF8String];
         
-        // Copy text to GLFW's text buffer like insertText does
-        size_t utf8_len = strlen(text);
-        if (utf8_len > 0) {
-            // Use the same mechanism as insertText
-            memset(_glfw.ns.text, 0, sizeof(_glfw.ns.text));
-            strncpy(_glfw.ns.text, text, sizeof(_glfw.ns.text) - 1);
-            _glfw.ns.text[sizeof(_glfw.ns.text) - 1] = 0;
-            
-            
-            // Send the text through GLFW's keyboard event system
-            GLFWkeyevent glfw_keyevent = {.text=_glfw.ns.text, .ime_state=GLFW_IME_COMMIT_TEXT};
-            _glfwInputKeyboard(window, &glfw_keyevent);
-            
-            // Clear the buffer after sending
-            _glfw.ns.text[0] = 0;
-        }
+        // Use our bridge function to insert text through kitty
+        cocoa_insert_text_for_window(window, text);
         
         // Post notification that value changed
         NSAccessibilityPostNotification(self, NSAccessibilityValueChangedNotification);
@@ -1704,15 +1747,11 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
 
 // Cursor position as text range
 - (NSRange)accessibilitySelectedTextRange {
-    // TODO: Get actual cursor position from terminal
-    // For now, return cursor at end of text (better than 0,0)
-    const char* text = cocoa_get_terminal_text_for_window(window);
-    if (text) {
-        NSInteger length = strlen(text);
-        // Put cursor at end of text for now
-        return NSMakeRange(length, 0);
-    }
-    return NSMakeRange(0, 0);
+    // Get actual cursor position from terminal
+    long position = 0;
+    long length = 0;
+    cocoa_get_cursor_position_for_window(window, &position, &length);
+    return NSMakeRange(position, length);
 }
 
 // Total character count in terminal

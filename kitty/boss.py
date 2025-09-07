@@ -3363,3 +3363,54 @@ class Boss:
     @ac('misc', 'Ungrab the keyboard if it was previously grabbed')
     def ungrab_keyboard(self) -> None:
         grab_keyboard(False)
+
+    # Accessibility support methods for macOS Voice Control
+    def get_accessibility_text(self, window_id: int) -> str:
+        """Get terminal text for accessibility (Voice Control)."""
+        from kitty.fast_data_types import accessibility_get_terminal_text
+        
+        window = self.window_id_map.get(window_id)
+        if not window:
+            return ""
+        
+        try:
+            # Call the C function that accesses the terminal buffer
+            return accessibility_get_terminal_text(window_id)
+        except Exception as e:
+            log_error(f"Error getting accessibility text for window {window_id}: {e}")
+            return ""
+    
+    def get_accessibility_cursor(self, window_id: int) -> tuple[int, int]:
+        """Get cursor position for accessibility (Voice Control)."""
+        from kitty.fast_data_types import accessibility_get_cursor_text_position
+        
+        window = self.window_id_map.get(window_id)
+        if not window:
+            return (0, 0)
+        
+        try:
+            # Get cursor position as text offset
+            position = accessibility_get_cursor_text_position(window_id)
+            # Return as (position, length) where length is 0 for cursor
+            return (position, 0)
+        except Exception as e:
+            log_error(f"Error getting accessibility cursor for window {window_id}: {e}")
+            return (0, 0)
+    
+    def insert_accessibility_text(self, window_id: int, text: str) -> None:
+        """Insert text from accessibility (Voice Control)."""
+        from kitty.fast_data_types import accessibility_insert_text_at_cursor
+        
+        window = self.window_id_map.get(window_id)
+        if not window or not text:
+            return
+        
+        try:
+            # Insert text at cursor position
+            accessibility_insert_text_at_cursor(window_id, text)
+            
+            # Post notification that value changed
+            from kitty.fast_data_types import accessibility_post_notification
+            accessibility_post_notification(window_id, "value_changed")
+        except Exception as e:
+            log_error(f"Error inserting accessibility text for window {window_id}: {e}")
