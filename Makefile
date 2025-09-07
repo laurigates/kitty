@@ -16,12 +16,7 @@ test:
 	python3 setup.py $(VVAL) test
 
 test-accessibility:
-	PYTHONPATH=. python3 kitty_tests/accessibility.py -v
-	PYTHONPATH=. python3 kitty_tests/test_accessibility_green.py -v
-	PYTHONPATH=. python3 kitty_tests/test_accessibility_integration.py -v
-
-test-accessibility-quick:
-	PYTHONPATH=. python3 kitty_tests/test_accessibility_green.py -v
+	python3 test.py accessibility
 
 clean:
 	python3 setup.py $(VVAL) clean

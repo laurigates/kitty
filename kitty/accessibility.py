@@ -87,7 +87,7 @@ class AccessibilityManager:
         """
         if c_bridge_available and self.window:
             return accessibility_get_terminal_text(self.window.id)
-        return ""  # Stub - will implement later
+        return ""  # Fallback when C bridge not available
     
     def get_cursor_text_position(self) -> int:
         """Get the cursor position as a character offset.
@@ -182,39 +182,3 @@ class AccessibilityManager:
             self._last_cursor_pos = current_cursor_pos
             self.notify_selection_changed()
 
-
-class VoiceControlSimulator:
-    """Simulator for testing Voice Control interactions."""
-    
-    def __init__(self, manager: AccessibilityManager) -> None:
-        """Initialize the Voice Control simulator.
-        
-        Args:
-            manager: The AccessibilityManager to test
-        """
-        self.manager = manager
-    
-    def simulate_dictation(self, text: str) -> None:
-        """Simulate Voice Control dictating text.
-        
-        Args:
-            text: Text to simulate dictating
-        """
-        self.manager.insert_text_at_cursor(text)
-        self.manager.notify_text_changed()
-
-
-class AccessibilityBridge:
-    """Bridge between Python accessibility and C/Objective-C layers."""
-    
-    def __init__(self) -> None:
-        """Initialize the accessibility bridge."""
-        pass
-    
-    def connect_to_cocoa(self) -> bool:
-        """Connect Python layer to Cocoa accessibility.
-        
-        Returns:
-            True if connection successful
-        """
-        return False  # Stub - will implement later
