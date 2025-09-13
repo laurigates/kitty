@@ -373,10 +373,16 @@ set_notification_activated_callback(PyObject *self UNUSED, PyObject *callback) {
 static void
 do_notification_callback(const char *identifier, const char *event, const char *action_identifer) {
     if (notification_activated_callback) {
+        // Ensure we have the GIL before calling Python functions
+        // This is needed because this function is called from dispatch_async
+        PyGILState_STATE gstate = PyGILState_Ensure();
+        
         PyObject *ret = PyObject_CallFunction(notification_activated_callback, "sss", event,
                 identifier ? identifier : "", action_identifer ? action_identifer : "");
         if (ret) Py_DECREF(ret);
         else PyErr_Print();
+        
+        PyGILState_Release(gstate);
     }
 }
 
@@ -1446,18 +1452,44 @@ static __thread char terminal_text_buffer[65536];
 
 static const char*
 accessibility_get_terminal_text(unsigned long long window_id) {
-    // Call Python to get terminal text
-    PyObject *args = Py_BuildValue("(K)", window_id);
-    if (!args) {
+    // Ensure we have the GIL before calling Python functions
+    PyGILState_STATE gstate = PyGILState_Ensure();
+    
+    // Get the accessibility module
+    PyObject *accessibility_module = PyImport_ImportModule("kitty.fast_data_types");
+    if (!accessibility_module) {
         PyErr_Print();
+        PyGILState_Release(gstate);
         return "";
     }
     
-    PyObject *result = PyObject_CallMethod(global_state.boss, "get_accessibility_text", "K", window_id);
+    // Get the function
+    PyObject *func = PyObject_GetAttrString(accessibility_module, "accessibility_get_terminal_text");
+    Py_DECREF(accessibility_module);
+    
+    if (!func || !PyCallable_Check(func)) {
+        if (func) Py_DECREF(func);
+        PyErr_Print();
+        PyGILState_Release(gstate);
+        return "";
+    }
+    
+    // Call the function with window_id
+    PyObject *args = Py_BuildValue("(K)", window_id);
+    if (!args) {
+        Py_DECREF(func);
+        PyErr_Print();
+        PyGILState_Release(gstate);
+        return "";
+    }
+    
+    PyObject *result = PyObject_CallObject(func, args);
+    Py_DECREF(func);
     Py_DECREF(args);
     
     if (!result) {
         PyErr_Print();
+        PyGILState_Release(gstate);
         return "";
     }
     
@@ -1472,6 +1504,7 @@ accessibility_get_terminal_text(unsigned long long window_id) {
     }
     Py_DECREF(result);
     
+    PyGILState_Release(gstate);
     return terminal_text_buffer;
 }
 
@@ -1480,30 +1513,54 @@ accessibility_get_cursor_position(unsigned long long window_id, long *position, 
     *position = 0;
     *length = 0;
     
-    PyObject *result = PyObject_CallMethod(global_state.boss, "get_accessibility_cursor", "K", window_id);
-    if (!result) {
+    // Ensure we have the GIL before calling Python functions
+    PyGILState_STATE gstate = PyGILState_Ensure();
+    
+    // Directly call the C function from accessibility.c
+    PyObject *accessibility_module = PyImport_ImportModule("kitty.fast_data_types");
+    if (!accessibility_module) {
         PyErr_Print();
+        PyGILState_Release(gstate);
         return;
     }
     
-    if (PyTuple_Check(result) && PyTuple_Size(result) == 2) {
-        *position = PyLong_AsLong(PyTuple_GetItem(result, 0));
-        *length = PyLong_AsLong(PyTuple_GetItem(result, 1));
+    PyObject *func = PyObject_GetAttrString(accessibility_module, "accessibility_get_cursor_text_position");
+    Py_DECREF(accessibility_module);
+    
+    if (!func || !PyCallable_Check(func)) {
+        if (func) Py_DECREF(func);
+        PyErr_Print();
+        PyGILState_Release(gstate);
+        return;
     }
+    
+    PyObject *args = Py_BuildValue("(K)", window_id);
+    if (!args) {
+        Py_DECREF(func);
+        PyErr_Print();
+        PyGILState_Release(gstate);
+        return;
+    }
+    
+    PyObject *result = PyObject_CallObject(func, args);
+    Py_DECREF(func);
+    Py_DECREF(args);
+    
+    if (!result) {
+        PyErr_Print();
+        PyGILState_Release(gstate);
+        return;
+    }
+    
+    // The function returns a single integer (cursor position)
+    *position = PyLong_AsLong(result);
+    *length = 0;  // For cursor, length is always 0
     Py_DECREF(result);
+    
+    PyGILState_Release(gstate);
 }
 
-static void
-accessibility_insert_text(unsigned long long window_id, const char *text) {
-    if (!text) return;
-    
-    PyObject *result = PyObject_CallMethod(global_state.boss, "insert_accessibility_text", "Ks", window_id, text);
-    if (!result) {
-        PyErr_Print();
-        return;
-    }
-    Py_DECREF(result);
-}
+// Note: accessibility_insert_text function removed - text insertion now uses NSTextInputClient protocol
 
 static void
 accessibility_post_notification(unsigned long long window_id, const char *notification) {
@@ -1523,7 +1580,7 @@ register_accessibility_callbacks(void) {
         glfwRegisterAccessibilityCallbacks(
             accessibility_get_terminal_text,
             accessibility_get_cursor_position,
-            accessibility_insert_text,
+            NULL,  // insert_text no longer used - text insertion uses NSTextInputClient
             accessibility_post_notification
         );
     }

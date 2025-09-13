@@ -1,4 +1,6 @@
+#ifdef DEBUG_VOICE_CONTROL
 //========================================================================
+#endif
 // GLFW 3.4 macOS - www.glfw.org
 //------------------------------------------------------------------------
 // Copyright (c) 2009-2019 Camilla Löwy <elmindreda@glfw.org>
@@ -26,6 +28,9 @@
 // It is fine to use C99 in this file because it will not be built with VS
 //========================================================================
 
+// Uncomment to enable Voice Control debug logging
+// #define DEBUG_VOICE_CONTROL
+
 #include "../kitty/monotonic.h"
 #include "glfw3.h"
 #include "internal.h"
@@ -47,13 +52,13 @@ typedef struct {
 // Function pointer types for accessibility callbacks
 typedef const char* (*GetTerminalTextFunc)(unsigned long long window_id);
 typedef void (*GetCursorPositionFunc)(unsigned long long window_id, long *position, long *length);
-typedef void (*InsertTextFunc)(unsigned long long window_id, const char *text);
+// Note: InsertTextFunc removed - text insertion now uses NSTextInputClient protocol directly
 typedef void (*PostNotificationFunc)(unsigned long long window_id, const char *notification);
 
 // Global function pointers for accessibility callbacks
 static GetTerminalTextFunc g_get_terminal_text = NULL;
 static GetCursorPositionFunc g_get_cursor_position = NULL;
-static InsertTextFunc g_insert_text = NULL;
+// Note: g_insert_text removed - no longer needed with NSTextInputClient
 static PostNotificationFunc g_post_notification = NULL;
 
 // Function to register callbacks from kitty
@@ -61,11 +66,12 @@ GLFWAPI void
 glfwRegisterAccessibilityCallbacks(
     GetTerminalTextFunc get_text,
     GetCursorPositionFunc get_cursor,
-    InsertTextFunc insert_text,
+    void* reserved_insert_text,  // Kept for ABI compatibility but unused
     PostNotificationFunc post_notification) {
     g_get_terminal_text = get_text;
     g_get_cursor_position = get_cursor;
-    g_insert_text = insert_text;
+    // reserved_insert_text parameter ignored - text insertion uses NSTextInputClient
+    (void)reserved_insert_text;
     g_post_notification = post_notification;
 }
 
@@ -115,17 +121,23 @@ static void cocoa_get_cursor_position_for_window(void* window_handle, long *posi
 
 // Insert text through kitty
 static void cocoa_insert_text_for_window(void* window_handle, const char *text) {
-    if (!window_handle || !text) return;
+    if (!window_handle || !text) {
+        return;
+    }
     
     GLFWwindow* glfw_window = (GLFWwindow*)window_handle;
-    OSWindow* os_window = glfwGetWindowUserPointer(glfw_window);
+    _GLFWwindow* fw = (_GLFWwindow*)glfw_window;
     
-    if (!os_window) return;
-    
-    // Call the registered callback if available
-    if (g_insert_text) {
-        g_insert_text(os_window->id, text);
+    if (!fw || !fw->ns.view) {
+        return;
     }
+    
+    // Convert text to NSString
+    NSString* nsText = [NSString stringWithUTF8String:text];
+    
+    // Use the NSTextInputClient protocol method to insert text
+    // This will trigger the same processing as keyboard input
+    [fw->ns.view insertText:nsText replacementRange:NSMakeRange(NSNotFound, 0)];
 }
 
 #define debug debug_rendering
@@ -1458,7 +1470,19 @@ is_modifier_pressed(NSUInteger flags, NSUInteger target_mask, NSUInteger other_m
 
 - (NSRange)selectedRange
 {
-    return kEmptyRange;
+    // Voice Control/Dictation needs a valid selected range to work
+    // Return the cursor position as a zero-length range
+    long position = 0;
+    long length = 0;
+    cocoa_get_cursor_position_for_window(window, &position, &length);
+    
+    if (length > 0) {
+        // There is selected text
+        return NSMakeRange(position, length);
+    } else {
+        // No selection, just cursor position
+        return NSMakeRange(position, 0);
+    }
 }
 
 - (void)setMarkedText:(id)string
@@ -1527,8 +1551,32 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
 - (NSAttributedString*)attributedSubstringForProposedRange:(NSRange)range
                                                actualRange:(NSRangePointer)actualRange
 {
-    (void)range; (void)actualRange;
-    return nil;
+    // Voice Control needs this to return actual text content
+    NSString *text = [self accessibilityValue];
+    if (!text) {
+        text = @"";
+    }
+    
+    NSUInteger length = [text length];
+    
+    // Clamp the requested range to valid bounds
+    if (range.location > length) {
+        range.location = length;
+    }
+    if (NSMaxRange(range) > length) {
+        range.length = length - range.location;
+    }
+    
+    if (actualRange) {
+        *actualRange = range;
+    }
+    
+    if (range.location == NSNotFound || range.length == 0) {
+        return [[NSAttributedString alloc] initWithString:@""];
+    }
+    
+    NSString *substring = [text substringWithRange:range];
+    return [[NSAttributedString alloc] initWithString:substring];
 }
 
 - (NSUInteger)characterIndexForPoint:(NSPoint)point
@@ -1563,6 +1611,10 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
 {
     const char *utf8 = polymorphic_string_as_utf8(string);
     debug_key("\n\tinsertText: %s replacementRange: (%lu, %lu)\n", utf8, replacementRange.location, replacementRange.length);
+#ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] *** insertText:replacementRange: called with text: '%s' range: (%lu, %lu) ***", 
+          utf8, replacementRange.location, replacementRange.length);
+#endif
     if ([self hasMarkedText] && !is_ascii_control_char(utf8[0])) {
         [self unmarkText];
         marked_text_cleared_by_insert = true;
@@ -1620,7 +1672,15 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
         selector == @selector(accessibilityFrameForRange:) ||
         selector == @selector(accessibilityStringForRange:) ||
         selector == @selector(accessibilityLineForIndex:) ||
-        selector == @selector(accessibilityRangeForLine:)) {
+        selector == @selector(accessibilityRangeForLine:) ||
+        selector == @selector(accessibilityInsertText:) ||
+        selector == @selector(accessibilityPerformAction:) ||
+        selector == @selector(accessibilityIsAttributeSettable:) ||
+        selector == @selector(accessibilityFocusedUIElement) ||
+        selector == @selector(isAccessibilityEditable) ||
+        selector == @selector(isAccessibilityEnabled) ||
+        selector == @selector(isAccessibilityTextInput) ||
+        selector == @selector(accessibilityReplaceCharactersInRange:withString:)) {
         return YES;
     }
     
@@ -1632,7 +1692,10 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
 
 - (NSAccessibilityRole)accessibilityRole
 {
-    return NSAccessibilityTextAreaRole;
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] accessibilityRole called - returning NSAccessibilityTextFieldRole");
+    #endif
+    return NSAccessibilityTextFieldRole;
 }
 
 #endif
@@ -1720,29 +1783,215 @@ void _glfwPlatformUpdateIMEState(_GLFWwindow *w, const GLFWIMEUpdateEvent *ev) {
 
 // Main text value for Voice Control
 - (NSString *)accessibilityValue {
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] accessibilityValue called");
+    #endif
     
     // Get terminal text from C bridge function
     const char* text = cocoa_get_terminal_text_for_window(window);
     if (text && strlen(text) > 0) {
-        return [NSString stringWithUTF8String:text];
+        NSString *result = [NSString stringWithUTF8String:text];
+        #ifdef DEBUG_VOICE_CONTROL
+        NSLog(@"[VC-Debug] Returning text with length: %lu", (unsigned long)[result length]);
+        #endif
+        return result;
     }
     // Return a space if no text to indicate we're an editable field
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] Returning default space for empty terminal");
+    #endif
     return @" ";
 }
 
 // Voice Control dictation support
 - (void)setAccessibilityValue:(NSString *)value {
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] *** setAccessibilityValue CALLED *** with: '%@' (length: %lu)", 
+          value, (unsigned long)[value length]);
+    #endif
     
     // This is called when Voice Control dictates text
     if (value && [value length] > 0) {
         const char *text = [value UTF8String];
+        #ifdef DEBUG_VOICE_CONTROL
+        NSLog(@"[VC-Debug] Inserting text: '%s'", text);
+        #endif
         
         // Use our bridge function to insert text through kitty
         cocoa_insert_text_for_window(window, text);
         
         // Post notification that value changed
         NSAccessibilityPostNotification(self, NSAccessibilityValueChangedNotification);
+        #ifdef DEBUG_VOICE_CONTROL
+        NSLog(@"[VC-Debug] Posted accessibility notification");
+        #endif
     }
+}
+
+// Alternative Voice Control text insertion method
+- (void)accessibilityInsertText:(NSString *)text {
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] accessibilityInsertText called with: '%@'", text);
+    #endif
+    
+    if (text && [text length] > 0) {
+        // Use insertText:replacementRange: directly for proper text processing
+        [self insertText:text replacementRange:NSMakeRange(NSNotFound, 0)];
+    }
+}
+
+// Support for replaceCharactersInRange - another method Voice Control might use
+- (void)accessibilityReplaceCharactersInRange:(NSRange)range withString:(NSString *)string {
+    // For now, just insert the text at cursor
+    if (string && [string length] > 0) {
+        [self insertText:string replacementRange:NSMakeRange(NSNotFound, 0)];
+    }
+}
+
+// Indicates this view supports text input
+- (BOOL)isAccessibilityTextInput {
+    return YES;
+}
+
+// Critical: Tell Voice Control that the value attribute can be set (i.e., text can be inserted)
+- (BOOL)accessibilityIsAttributeSettable:(NSString *)attribute {
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] accessibilityIsAttributeSettable called for: %@", attribute);
+    #endif
+    
+    if ([attribute isEqualToString:NSAccessibilityValueAttribute]) {
+        #ifdef DEBUG_VOICE_CONTROL
+        NSLog(@"[VC-Debug] Returning YES for AXValue settable");
+        #endif
+        return YES;
+    }
+    if ([attribute isEqualToString:NSAccessibilitySelectedTextAttribute]) {
+        return YES;
+    }
+    if ([attribute isEqualToString:NSAccessibilitySelectedTextRangeAttribute]) {
+        return YES;
+    }
+    
+    return [super accessibilityIsAttributeSettable:attribute];
+}
+
+// Return self as the focused element when this view has focus
+- (id)accessibilityFocusedUIElement {
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] accessibilityFocusedUIElement called");
+    #endif
+    
+    // Check if we're the first responder or if our window is key
+    BOOL isFirstResponder = ([window->ns.object firstResponder] == self);
+    BOOL isKeyWindow = [window->ns.object isKeyWindow];
+    
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] isFirstResponder: %@, isKeyWindow: %@", 
+          isFirstResponder ? @"YES" : @"NO",
+          isKeyWindow ? @"YES" : @"NO");
+    #endif
+    
+    if (isFirstResponder || isKeyWindow) {
+        #ifdef DEBUG_VOICE_CONTROL
+        NSLog(@"[VC-Debug] Returning self as focused element");
+        #endif
+        return self;
+    }
+    
+    return [super accessibilityFocusedUIElement];
+}
+
+// Ensure we're recognized as an editable text area
+- (BOOL)isAccessibilityEditable {
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] isAccessibilityEditable called - returning YES");
+    #endif
+    return YES;
+}
+
+// Ensure Voice Control knows the field is enabled
+- (BOOL)isAccessibilityEnabled {
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] isAccessibilityEnabled called - returning YES");
+    #endif
+    return YES;
+}
+
+// Override accessibilityAttributeValue to see what's being queried
+- (id)accessibilityAttributeValue:(NSString *)attribute {
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] accessibilityAttributeValue called for attribute: %@", attribute);
+    #endif
+    
+    if ([attribute isEqualToString:NSAccessibilityRoleAttribute]) {
+        #ifdef DEBUG_VOICE_CONTROL
+        NSLog(@"[VC-Debug] Returning AXTextField for role");
+        #endif
+        return NSAccessibilityTextFieldRole;
+    }
+    if ([attribute isEqualToString:NSAccessibilityRoleDescriptionAttribute]) {
+        return NSAccessibilityRoleDescription(NSAccessibilityTextFieldRole, nil);
+    }
+    if ([attribute isEqualToString:NSAccessibilityValueAttribute]) {
+        return [self accessibilityValue];
+    }
+    if ([attribute isEqualToString:@"AXEditable"]) {
+        #ifdef DEBUG_VOICE_CONTROL
+        NSLog(@"[VC-Debug] Returning YES for editable");
+        #endif
+        return @YES;
+    }
+    if ([attribute isEqualToString:NSAccessibilityFocusedAttribute]) {
+        BOOL focused = ([window->ns.object firstResponder] == self) && [window->ns.object isKeyWindow];
+        #ifdef DEBUG_VOICE_CONTROL
+        NSLog(@"[VC-Debug] Returning %@ for focused", focused ? @"YES" : @"NO");
+        #endif
+        return @(focused);
+    }
+    
+    return [super accessibilityAttributeValue:attribute];
+}
+
+// Report supported accessibility actions
+- (NSArray *)accessibilityActionNames {
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] accessibilityActionNames called");
+    #endif
+    NSArray *actions = @[NSAccessibilityPressAction, NSAccessibilityShowMenuAction];
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] Returning actions: %@", actions);
+    #endif
+    return actions;
+}
+
+// Provide descriptions for accessibility actions
+- (NSString *)accessibilityActionDescription:(NSString *)action {
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] accessibilityActionDescription called for: %@", action);
+    #endif
+    return NSAccessibilityActionDescription(action);
+}
+
+// Handle accessibility perform action for text insertion
+- (void)accessibilityPerformAction:(NSString *)action {
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] accessibilityPerformAction called with action: %@", action);
+    #endif
+    
+    if ([action isEqualToString:NSAccessibilityPressAction] ||
+        [action isEqualToString:NSAccessibilityShowMenuAction]) {
+        // These are common actions, handle them silently
+        #ifdef DEBUG_VOICE_CONTROL
+        NSLog(@"[VC-Debug] Handling common action: %@", action);
+        #endif
+        return;
+    }
+    
+    // Log any other actions we receive
+    #ifdef DEBUG_VOICE_CONTROL
+    NSLog(@"[VC-Debug] Passing action to super: %@", action);
+    #endif
+    [super accessibilityPerformAction:action];
 }
 
 // Cursor position as text range

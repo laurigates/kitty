@@ -2392,10 +2392,10 @@ GFW_EXTERN glfwSetX11LaunchCommand_func glfwSetX11LaunchCommand_impl;
 
 // Accessibility callback registration
 typedef void (*glfwRegisterAccessibilityCallbacks_func)(
-    const char* (*)(unsigned long long),
-    void (*)(unsigned long long, long*, long*),
-    void (*)(unsigned long long, const char*),
-    void (*)(unsigned long long, const char*)
+    const char* (*)(unsigned long long),        // get_terminal_text
+    void (*)(unsigned long long, long*, long*), // get_cursor_position
+    void*,                                       // reserved (was insert_text, now unused)
+    void (*)(unsigned long long, const char*)   // post_notification
 );
 GFW_EXTERN glfwRegisterAccessibilityCallbacks_func glfwRegisterAccessibilityCallbacks_impl;
 #define glfwRegisterAccessibilityCallbacks glfwRegisterAccessibilityCallbacks_impl
